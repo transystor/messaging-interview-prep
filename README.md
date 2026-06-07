@@ -22,6 +22,9 @@
 - `src/Kafka.Producer` — producer в topic `orders.created`
 - `src/Kafka.Consumer.GroupA` — consumer group для "processing"
 - `src/Kafka.Consumer.GroupB` — отдельная consumer group для "analytics"
+- `src/RabbitMq.Consumer.TopicErrors` — подписчик на topic exchange c routing pattern
+- `src/Kafka.Consumer.RetryDemo` — учебный consumer для объяснения retry / DLQ-подхода
+- `docs/interview-cheat-sheet.md` — сжатая шпаргалка по вопросам/ответам
 
 ---
 
@@ -170,6 +173,42 @@ Producer в RabbitMQ обычно публикует не напрямую в co
 
 ---
 
+## Пример 3. Topic Exchange
+
+### Что демонстрирует
+
+Producer также публикует события в:
+- `orders.topic`
+
+Routing key выбирается так:
+- дорогой заказ: `order.error.payment`
+- обычный заказ: `order.info.created`
+
+`RabbitMq.Consumer.TopicErrors` подписывается на pattern, например:
+- `order.error.*`
+
+### Как запускать
+
+Окно 1:
+```bash
+dotnet run --project src/RabbitMq.Consumer.TopicErrors billing-errors order.error.*
+```
+
+Окно 2:
+```bash
+dotnet run --project src/RabbitMq.Producer
+```
+
+### Что важно для собеса
+
+`topic exchange` позволяет гибче routing, чем `fanout`:
+- `*` совпадает с одним сегментом
+- `#` совпадает с несколькими сегментами
+
+Это удобно для selective subscription по типу событий.
+
+---
+
 ## RabbitMQ, как объяснять на собеседовании
 
 Хорошая формулировка:
@@ -270,6 +309,29 @@ dotnet run --project src/Kafka.Producer
 
 ```bash
 dotnet run --project src/Kafka.Consumer.GroupA processor-2
+```
+
+---
+
+## Пример 4. Retry / Dead Letter концепция
+
+`Kafka.Consumer.RetryDemo` специально показывает учебный сценарий:
+- если заказ дорогой, обычная обработка помечает его как кандидат в retry/DLQ flow
+
+Здесь логика упрощённая, но interview-смысл важный:
+- в Kafka обычно не любят бесконечно держать проблемное сообщение в основном consumer loop
+- вместо этого используют retry topics и dead-letter topics
+
+### Как запускать
+
+Окно 1:
+```bash
+dotnet run --project src/Kafka.Consumer.RetryDemo
+```
+
+Окно 2:
+```bash
+dotnet run --project src/Kafka.Producer
 ```
 
 ---
@@ -393,11 +455,22 @@ Consumer фиксирует, до какого места он дочитал.
 
 ---
 
+# Interview cheat sheet
+
+Отдельная шпаргалка лежит здесь:
+
+```text
+docs/interview-cheat-sheet.md
+```
+
+Там короткие сильные формулировки для типовых вопросов.
+
+---
+
 # Что можно сделать следующим этапом
 
-Я бы дальше добавила ещё 3 полезных учебных сценария:
-1. RabbitMQ Direct/Topic exchange
-2. Kafka retry + dead letter pattern explanation
-3. ASP.NET Core API, которая публикует события в RabbitMQ и Kafka
+Я бы дальше добавила ещё 2 полезных учебных сценария:
+1. ASP.NET Core API, которая публикует события в RabbitMQ и Kafka
+2. Outbox pattern на C# с PostgreSQL
 
-Это уже даст почти полноценный interview-lab.
+Это уже даст почти полноценный interview-lab уровня middle/senior backend.
