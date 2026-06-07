@@ -2,6 +2,20 @@
 
 Учебный набор C#-примеров для подготовки к собеседованию по RabbitMQ и Kafka.
 
+## С чего начать
+
+Если хочешь проходить материал по порядку, открой сначала:
+
+```text
+docs/study-roadmap.md
+```
+
+А короткая шпаргалка для повторения лежит здесь:
+
+```text
+docs/interview-cheat-sheet.md
+```
+
 ## Зачем этот репозиторий
 
 Цель не просто "показать hello world", а руками увидеть:
@@ -25,6 +39,7 @@
 - `src/RabbitMq.Consumer.TopicErrors` — подписчик на topic exchange c routing pattern
 - `src/Kafka.Consumer.RetryDemo` — учебный consumer для объяснения retry / DLQ-подхода
 - `docs/interview-cheat-sheet.md` — сжатая шпаргалка по вопросам/ответам
+- `docs/study-roadmap.md` — маршрут изучения по шагам
 - `src/Messaging.Api` — ASP.NET Core minimal API, которая публикует событие и в RabbitMQ, и в Kafka
 - `src/OutboxDemo.Api` — API, которая пишет заказ и событие в PostgreSQL через transactional outbox
 - `src/OutboxDemo.Worker` — worker, который читает outbox table и публикует события в брокеры
