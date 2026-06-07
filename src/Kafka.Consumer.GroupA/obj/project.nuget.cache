@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "dgSpecHash": "aGiR8LGmW/GcErjlBGXMGIrJsHfKHkQ1vMaTFNwGrQ0mWjUNj14RCauYOzzN37jEVFe9eYn0BGDAIBfZWboAWQ==",
+  "success": true,
+  "projectFilePath": "/root/.openclaw/workspace/messaging-interview-prep/src/Kafka.Consumer.GroupA/Kafka.Consumer.GroupA.csproj",
+  "expectedPackageFiles": [
+    "/root/.nuget/packages/confluent.kafka/2.14.2/confluent.kafka.2.14.2.nupkg.sha512",
+    "/root/.nuget/packages/librdkafka.redist/2.14.2/librdkafka.redist.2.14.2.nupkg.sha512"
+  ],
+  "logs": []
+}

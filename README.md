@@ -1,0 +1,403 @@
+# MessagingInterviewPrep
+
+Учебный набор C#-примеров для подготовки к собеседованию по RabbitMQ и Kafka.
+
+## Зачем этот репозиторий
+
+Цель не просто "показать hello world", а руками увидеть:
+- чем queue-based broker отличается от log-based broker
+- как ведёт себя competing consumers в RabbitMQ
+- чем pub/sub в RabbitMQ отличается от consumer groups в Kafka
+- что такое durability, ack, offset, partition, routing, fanout
+- как это выглядит в коде на C#
+
+---
+
+## Структура
+
+- `src/SharedModels` — общий контракт сообщений
+- `src/RabbitMq.Producer` — отправка сообщений в queue и fanout exchange
+- `src/RabbitMq.Consumer.WorkQueue` — competing consumer для work queue
+- `src/RabbitMq.Consumer.PubSub` — подписчик на fanout exchange
+- `src/Kafka.Producer` — producer в topic `orders.created`
+- `src/Kafka.Consumer.GroupA` — consumer group для "processing"
+- `src/Kafka.Consumer.GroupB` — отдельная consumer group для "analytics"
+
+---
+
+## Быстрый старт
+
+### 1. Поднять инфраструктуру
+
+```bash
+docker compose up -d
+```
+
+Это поднимет:
+- RabbitMQ на `localhost:5672`
+- RabbitMQ Management UI на `http://localhost:15672`
+- Kafka на `localhost:9092`
+
+### 2. Сборка
+
+```bash
+dotnet build MessagingInterviewPrep.sln
+```
+
+---
+
+# RabbitMQ
+
+## Идея RabbitMQ
+
+RabbitMQ, в типичном interview-контексте, это broker, который хорошо подходит для:
+- task distribution
+- routing
+- asynchronous integration
+- "обработай задачу один раз одним worker'ом"
+
+RabbitMQ мыслит категориями:
+- producer
+- exchange
+- queue
+- consumer
+- binding
+- ack
+
+Ключевая идея: **сообщение обычно маршрутизируется в queue, а потом один из consumers его забирает**.
+
+---
+
+## Пример 1. Work Queue
+
+### Что демонстрирует
+
+`RabbitMq.Producer` кладёт сообщения в очередь:
+- `orders.work`
+
+`RabbitMq.Consumer.WorkQueue` читает их с manual ack и `prefetch = 1`.
+
+### Как запускать
+
+Окно 1:
+```bash
+dotnet run --project src/RabbitMq.Consumer.WorkQueue worker-1
+```
+
+Окно 2:
+```bash
+dotnet run --project src/RabbitMq.Consumer.WorkQueue worker-2
+```
+
+Окно 3:
+```bash
+dotnet run --project src/RabbitMq.Producer
+```
+
+### Что увидеть
+
+Сообщения будут делиться между `worker-1` и `worker-2`.
+
+Это и есть **competing consumers**:
+- одна очередь
+- несколько workers
+- каждое конкретное сообщение обрабатывает только один worker
+
+### Что важно для собеса
+
+#### `QueueDeclare`
+Создаёт очередь, если её ещё нет.
+
+#### `durable: true`
+Очередь переживает restart broker'а.
+
+#### `Persistent = true`
+Сообщение помечается как persistent.
+
+#### `BasicAck`
+Consumer вручную подтверждает успешную обработку.
+
+Если consumer умер **до ack**, RabbitMQ сможет отдать сообщение другому worker'у.
+
+#### `BasicQos(prefetchCount: 1)`
+Не давать одному worker'у слишком много unacked сообщений сразу.
+Это важный механизм fair dispatch.
+
+---
+
+## Пример 2. Pub/Sub через Fanout Exchange
+
+### Что демонстрирует
+
+Producer также публикует события в:
+- exchange `orders.fanout`
+
+`RabbitMq.Consumer.PubSub` создаёт временную очередь и подписывается на fanout exchange.
+
+### Как запускать
+
+Окно 1:
+```bash
+dotnet run --project src/RabbitMq.Consumer.PubSub audit
+```
+
+Окно 2:
+```bash
+dotnet run --project src/RabbitMq.Consumer.PubSub notifications
+```
+
+Окно 3:
+```bash
+dotnet run --project src/RabbitMq.Producer
+```
+
+### Что увидеть
+
+Каждый подписчик получит **копию** каждого сообщения.
+
+Это уже не competing consumers, а **broadcast**.
+
+### Что важно для собеса
+
+#### Exchange
+Producer в RabbitMQ обычно публикует не напрямую в consumer, а в exchange.
+
+#### Fanout exchange
+Игнорирует routing key и шлёт сообщение во все связанные очереди.
+
+#### Временная exclusive queue
+Удобна для временного subscriber'а, которому не нужна постоянная очередь.
+
+---
+
+## RabbitMQ, как объяснять на собеседовании
+
+Хорошая формулировка:
+
+> RabbitMQ удобен, когда нужен классический message broker с явными очередями, гибким routing и понятной моделью task processing. Особенно хорош для work queues, background jobs, integration between services и сценариев, где одно сообщение обычно должен обработать один consumer.
+
+Ещё важно сказать, что RabbitMQ:
+- не про долгую историю сообщений как основную модель
+- не про replay как ключевую фичу
+- обычно используется как "операционный broker"
+
+---
+
+# Kafka
+
+## Идея Kafka
+
+Kafka, в interview-контексте, это distributed append-only log.
+
+Kafka мыслит категориями:
+- topic
+- partition
+- offset
+- producer
+- consumer group
+- retention
+
+Ключевая идея: **producer пишет запись в log, а consumers читают log по offsets**.
+
+Сообщение не "исчезает" сразу после чтения одним consumer'ом. Разные consumer groups могут читать его независимо.
+
+---
+
+## Пример 1. Producer
+
+`Kafka.Producer` пишет события в topic:
+- `orders.created`
+
+В качестве key используется `CustomerId`.
+
+### Почему это важно
+
+Key влияет на partitioning.
+Если одинаковый key, Kafka старается отправлять сообщения в одну и ту же partition, чтобы сохранить порядок в рамках key.
+
+---
+
+## Пример 2. Consumer Group A
+
+`Kafka.Consumer.GroupA` работает как группа обработки заказов:
+- `GroupId = orders-processors-a`
+
+Если запустить два экземпляра этого проекта с одним `GroupId`, Kafka будет балансировать partitions между ними.
+
+### Важно
+Это не совсем то же самое, что RabbitMQ competing consumers, хотя внешне похоже.
+
+В Kafka распределяются **partitions**, а не отдельные сообщения абстрактно.
+Порядок гарантируется внутри partition.
+
+---
+
+## Пример 3. Consumer Group B
+
+`Kafka.Consumer.GroupB` использует другой `GroupId`:
+- `orders-analytics-b`
+
+Она читает те же события независимо от Group A.
+
+### Что демонстрирует
+
+Одно и то же событие может быть:
+- обработано processing-group
+- отдельно обработано analytics-group
+
+И это нормальная, нативная модель Kafka.
+
+---
+
+## Как запускать Kafka-примеры
+
+Окно 1:
+```bash
+dotnet run --project src/Kafka.Consumer.GroupA processor-1
+```
+
+Окно 2:
+```bash
+dotnet run --project src/Kafka.Consumer.GroupB analytics-1
+```
+
+Окно 3:
+```bash
+dotnet run --project src/Kafka.Producer
+```
+
+Для демонстрации масштабирования внутри одной группы можно запустить ещё один consumer группы A:
+
+```bash
+dotnet run --project src/Kafka.Consumer.GroupA processor-2
+```
+
+---
+
+## Что важно для собеса по Kafka
+
+#### Topic
+Логическая категория сообщений.
+
+#### Partition
+Физическое/логическое деление topic для параллелизма и масштабирования.
+
+#### Offset
+Позиция сообщения внутри partition.
+
+#### Consumer Group
+Механизм независимого чтения и масштабирования.
+
+#### Commit offset
+Consumer фиксирует, до какого места он дочитал.
+
+#### Retention
+Сообщения живут заданное время или пока не достигнут лимит размера, даже если кто-то их уже прочитал.
+
+---
+
+## Kafka, как объяснять на собеседовании
+
+Хорошая формулировка:
+
+> Kafka полезна, когда нужен высокопроизводительный event streaming, независимое чтение одних и тех же событий разными системами, replay истории, retention и масштабирование через partitions и consumer groups.
+
+Ещё важно сказать, что Kafka хорошо подходит для:
+- event-driven architecture
+- audit/event history
+- analytics pipelines
+- integration streams
+- high-throughput async systems
+
+---
+
+# Главное отличие RabbitMQ и Kafka
+
+## RabbitMQ
+Обычно думаешь так:
+- есть очередь
+- кто-то забрал задачу
+- задача считается доставленной конкретному обработчику
+
+## Kafka
+Обычно думаешь так:
+- есть поток событий в log
+- разные группы читают его независимо
+- сообщения хранятся по retention policy
+
+---
+
+## Простая interview-шпаргалка
+
+### Когда RabbitMQ
+- background jobs
+- task queues
+- routing по exchange/binding
+- request/async processing
+- нужно быстро и явно распределять задачи между workers
+
+### Когда Kafka
+- event streaming
+- event sourcing adjacent patterns
+- аналитика
+- replay
+- несколько независимых consumer groups
+- большие объёмы событий
+
+---
+
+# На что обратить внимание в коде
+
+## RabbitMQ код
+Смотри на:
+- `QueueDeclareAsync`
+- `ExchangeDeclareAsync`
+- `QueueBindAsync`
+- `BasicPublishAsync`
+- `BasicConsumeAsync`
+- `BasicAckAsync`
+- `BasicQosAsync`
+
+## Kafka код
+Смотри на:
+- `ProducerBuilder`
+- `ProduceAsync`
+- `ConsumerBuilder`
+- `Subscribe`
+- `Consume`
+- `Commit`
+- `GroupId`
+- `AutoOffsetReset`
+
+---
+
+# Хорошие устные ответы для собеседования
+
+## Вопрос: чем RabbitMQ отличается от Kafka?
+
+Короткий сильный ответ:
+
+> RabbitMQ это классический broker очередей. Он удобен для task distribution и routing. Kafka это distributed log для event streams. В Kafka сообщения читаются по offsets, могут долго храниться и переиспользоваться разными consumer groups независимо друг от друга.
+
+## Вопрос: что такое consumer group в Kafka?
+
+> Это набор consumers с одним GroupId. Kafka распределяет partitions topic между ними, чтобы внутри группы каждое сообщение читалось одним логическим потребителем, а разные группы могли читать тот же topic независимо.
+
+## Вопрос: зачем manual ack в RabbitMQ?
+
+> Чтобы broker не считал сообщение обработанным раньше времени. Если consumer падает до ack, сообщение можно доставить повторно другому worker'у.
+
+## Вопрос: зачем message key в Kafka?
+
+> Key влияет на partitioning. Это позволяет сохранять порядок событий для одного business key, например для одного пользователя или заказа.
+
+---
+
+# Что можно сделать следующим этапом
+
+Я бы дальше добавила ещё 3 полезных учебных сценария:
+1. RabbitMQ Direct/Topic exchange
+2. Kafka retry + dead letter pattern explanation
+3. ASP.NET Core API, которая публикует события в RabbitMQ и Kafka
+
+Это уже даст почти полноценный interview-lab.
