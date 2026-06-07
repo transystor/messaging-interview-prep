@@ -25,6 +25,7 @@
 - `src/RabbitMq.Consumer.TopicErrors` — подписчик на topic exchange c routing pattern
 - `src/Kafka.Consumer.RetryDemo` — учебный consumer для объяснения retry / DLQ-подхода
 - `docs/interview-cheat-sheet.md` — сжатая шпаргалка по вопросам/ответам
+- `src/Messaging.Api` — ASP.NET Core minimal API, которая публикует событие и в RabbitMQ, и в Kafka
 
 ---
 
@@ -46,6 +47,33 @@ docker compose up -d
 ```bash
 dotnet build MessagingInterviewPrep.sln
 ```
+
+### 3. Запуск demo API
+
+```bash
+dotnet run --project src/Messaging.Api
+```
+
+Пример запроса:
+
+```bash
+curl -X POST http://localhost:5137/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customerId": "cust-777",
+    "amount": 2450,
+    "source": "interview-demo"
+  }'
+```
+
+Что происходит:
+- API принимает HTTP request
+- формирует `OrderCreatedEvent`
+- публикует его в RabbitMQ:
+  - work queue
+  - fanout exchange
+  - topic exchange
+- публикует тот же event в Kafka topic `orders.created`
 
 ---
 
@@ -452,6 +480,29 @@ Consumer фиксирует, до какого места он дочитал.
 ## Вопрос: зачем message key в Kafka?
 
 > Key влияет на partitioning. Это позволяет сохранять порядок событий для одного business key, например для одного пользователя или заказа.
+
+---
+
+# End-to-end ASP.NET Core пример
+
+`src/Messaging.Api` это учебный сценарий, близкий к реальному backend flow:
+
+- клиент делает `POST /orders`
+- API валидирует входные данные
+- создаёт доменное событие `OrderCreatedEvent`
+- публикует его в RabbitMQ и Kafka
+
+## Зачем это полезно для собеседования
+
+На собесе часто важно показать не только знание терминов, но и понимание реального integration path:
+
+- где рождается событие
+- как API связано с broker'ом
+- как одно и то же бизнес-событие может потребляться разными downstream системами
+
+Хорошая устная формулировка:
+
+> HTTP API принимает команду от клиента, формирует бизнес-событие и публикует его в messaging infrastructure. Дальше разные consumers могут независимо обрабатывать это событие, например operational workers через RabbitMQ и analytics/stream consumers через Kafka.
 
 ---
 
