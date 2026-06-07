@@ -27,3 +27,13 @@ services:
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+
+  postgres:
+    image: postgres:16
+    container_name: interview-postgres
+    ports:
+      - "5433:5432"
+    environment:
+      POSTGRES_DB: outbox_demo
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres

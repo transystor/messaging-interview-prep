@@ -26,6 +26,8 @@
 - `src/Kafka.Consumer.RetryDemo` — учебный consumer для объяснения retry / DLQ-подхода
 - `docs/interview-cheat-sheet.md` — сжатая шпаргалка по вопросам/ответам
 - `src/Messaging.Api` — ASP.NET Core minimal API, которая публикует событие и в RabbitMQ, и в Kafka
+- `src/OutboxDemo.Api` — API, которая пишет заказ и событие в PostgreSQL через transactional outbox
+- `src/OutboxDemo.Worker` — worker, который читает outbox table и публикует события в брокеры
 
 ---
 
@@ -41,6 +43,7 @@ docker compose up -d
 - RabbitMQ на `localhost:5672`
 - RabbitMQ Management UI на `http://localhost:15672`
 - Kafka на `localhost:9092`
+- PostgreSQL для outbox demo на `localhost:5433`
 
 ### 2. Сборка
 
@@ -480,6 +483,89 @@ Consumer фиксирует, до какого места он дочитал.
 ## Вопрос: зачем message key в Kafka?
 
 > Key влияет на partitioning. Это позволяет сохранять порядок событий для одного business key, например для одного пользователя или заказа.
+
+---
+
+# Transactional Outbox demo
+
+`src/OutboxDemo.Api` и `src/OutboxDemo.Worker` показывают один из самых полезных interview-паттернов.
+
+## Проблема
+
+Плохой наивный сценарий выглядит так:
+1. сохранить заказ в БД
+2. потом сразу опубликовать событие в broker
+
+Если между шагом 1 и шагом 2 процесс упал, получится рассинхрон:
+- заказ в БД уже есть
+- события в broker нет
+
+## Идея outbox pattern
+
+Правильнее сделать так:
+1. в одной транзакции записать:
+   - сам заказ
+   - запись в `outbox_messages`
+2. отдельный worker читает `outbox_messages`
+3. публикует события в broker
+4. помечает запись как опубликованную
+
+Так мы уменьшаем риск потери событий между БД и messaging layer.
+
+## Что есть в demo
+
+### `OutboxDemo.Api`
+- `POST /orders`
+- пишет заказ в таблицу `orders`
+- в той же транзакции пишет событие в `outbox_messages`
+
+### `OutboxDemo.Worker`
+- периодически читает неопубликованные outbox записи
+- публикует их в RabbitMQ и Kafka
+- ставит `published_at_utc`
+- увеличивает `attempts`
+
+## Как запускать
+
+Окно 1:
+```bash
+docker compose up -d
+```
+
+Окно 2:
+```bash
+dotnet run --project src/OutboxDemo.Api
+```
+
+Окно 3:
+```bash
+dotnet run --project src/OutboxDemo.Worker
+```
+
+Окно 4:
+```bash
+curl -X POST http://localhost:5105/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customerId": "cust-outbox-1",
+    "amount": 1999,
+    "source": "outbox-demo"
+  }'
+```
+
+Потом можно посмотреть outbox:
+
+```bash
+curl http://localhost:5105/outbox
+```
+
+## Что говорить на собеседовании
+
+Хорошая формулировка:
+
+> Transactional outbox нужен, чтобы не потерять событие в промежутке между коммитом бизнес-данных в БД и публикацией в broker. Мы сначала сохраняем и данные, и outbox-запись в одной локальной транзакции, а уже отдельный publisher/worker надёжно вычитывает и отправляет события дальше.
+
+Важно честно сказать: outbox обычно даёт **at-least-once delivery**, поэтому consumer'ы должны быть готовы к идемпотентной обработке.
 
 ---
 
