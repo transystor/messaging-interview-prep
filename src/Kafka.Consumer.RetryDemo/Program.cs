@@ -14,6 +14,9 @@ var config = new ConsumerConfig
 };
 
 const string topic = "orders.created";
+
+// Порог здесь чисто учебный: дорогие заказы считаем условно "проблемными".
+// Это позволяет наглядно обсудить retry/DLQ, не городя сложную бизнес-валидацию.
 const decimal failureThreshold = 1000m;
 
 using var consumer = new ConsumerBuilder<string, string>(config).Build();
@@ -28,6 +31,9 @@ while (true)
 
     if (order is null)
     {
+        // Некорректный payload здесь просто пропускаем с commit.
+        // Идея в том, чтобы показать: не каждую ошибку разумно крутить бесконечно,
+        // иногда сообщение лучше сразу отправить в специальный error-flow.
         Console.WriteLine("[Kafka RetryDemo] invalid payload, skip with commit");
         consumer.Commit(result);
         continue;
@@ -37,6 +43,9 @@ while (true)
     {
         Console.WriteLine($"[Kafka RetryDemo] order {order.OrderId} amount={order.Amount} would go to retry/DLQ flow");
         Console.WriteLine("[Kafka RetryDemo] in production you usually publish to retry topic or dead-letter topic, not just sleep forever in main consumer.");
+
+        // В demo мы просто commit'им и логируем идею.
+        // В реальной системе здесь обычно была бы публикация в retry topic или dead-letter topic.
         consumer.Commit(result);
         continue;
     }

@@ -22,6 +22,9 @@ app.MapGet("/", () => Results.Ok(new
 
 app.MapPost("/orders", async (CreateOrderRequest request) =>
 {
+    // Валидация здесь максимально прямолинейная.
+    // Цель примера не в богатом API-layer, а в том, чтобы показать путь:
+    // HTTP request -> domain event -> publish to broker(s).
     if (string.IsNullOrWhiteSpace(request.CustomerId))
     {
         return Results.BadRequest(new { error = "CustomerId is required" });
@@ -37,6 +40,8 @@ app.MapPost("/orders", async (CreateOrderRequest request) =>
         return Results.BadRequest(new { error = "Amount must be > 0" });
     }
 
+    // Внутри API-команды создаём бизнес-событие.
+    // Это полезный interview-point: команда приходит извне, а событие описывает уже свершившийся факт домена.
     var order = new OrderCreatedEvent(
         OrderId: Guid.NewGuid(),
         CustomerId: request.CustomerId,
@@ -46,6 +51,9 @@ app.MapPost("/orders", async (CreateOrderRequest request) =>
 
     var json = JsonSerializer.Serialize(order);
 
+    // Здесь намеренно показываем публикацию одного и того же события сразу в два transport-механизма.
+    // Это не всегда правильный выбор для production-архитектуры, но для учебного стенда хорошо демонстрирует,
+    // что transport — отдельный слой, а доменное событие может быть общим.
     await PublishToRabbitMqAsync(order, json);
     await PublishToKafkaAsync(order, json);
 
@@ -74,6 +82,8 @@ static async Task PublishToRabbitMqAsync(OrderCreatedEvent order, string json)
     var connection = await factory.CreateConnectionAsync();
     var channel = await connection.CreateChannelAsync();
 
+    // API не рассчитывает, что topology уже кто-то заранее создал.
+    // Для demo-сценариев это удобно: сервис можно запускать изолированно и он сам подготовит нужные queue/exchange.
     await channel.QueueDeclareAsync(workQueueName, durable: true, exclusive: false, autoDelete: false);
     await channel.ExchangeDeclareAsync(fanoutExchangeName, ExchangeType.Fanout, durable: true);
     await channel.ExchangeDeclareAsync(topicExchangeName, ExchangeType.Topic, durable: true);
@@ -87,6 +97,10 @@ static async Task PublishToRabbitMqAsync(OrderCreatedEvent order, string json)
         Timestamp = new AmqpTimestamp(DateTimeOffset.UtcNow.ToUnixTimeSeconds())
     };
 
+    // Один и тот же event отправляем в три rabbit-pattern'а:
+    // 1. work queue
+    // 2. fanout pub/sub
+    // 3. topic routing
     await channel.BasicPublishAsync(string.Empty, workQueueName, false, props, body);
     await channel.BasicPublishAsync(fanoutExchangeName, string.Empty, false, props, body);
 
@@ -105,6 +119,8 @@ static async Task PublishToKafkaAsync(OrderCreatedEvent order, string json)
     using var producer = new ProducerBuilder<string, string>(config).Build();
     await producer.ProduceAsync("orders.created", new Message<string, string>
     {
+        // В Kafka key обычно имеет архитектурное значение.
+        // Здесь берём CustomerId, чтобы показать типичный подход: группировать порядок событий по бизнес-ключу.
         Key = order.CustomerId,
         Value = json,
         Headers = new Confluent.Kafka.Headers

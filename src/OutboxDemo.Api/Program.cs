@@ -11,6 +11,8 @@ var app = builder.Build();
 var connectionString = Environment.GetEnvironmentVariable("OUTBOX_DB")
     ?? "Host=localhost;Port=5433;Database=outbox_demo;Username=postgres;Password=postgres";
 
+// Для demo-проекта сами создаём минимальную схему при старте.
+// В production это обычно делается миграциями, но здесь важнее быстро показать сам паттерн outbox.
 await EnsureSchemaAsync(connectionString);
 
 app.MapGet("/", () => Results.Ok(new
@@ -25,6 +27,9 @@ app.MapGet("/", () => Results.Ok(new
 
 app.MapGet("/outbox", async () =>
 {
+    // Этот endpoint нужен прежде всего для наглядности.
+    // Через него можно увидеть, что событие сначала попадает в outbox table,
+    // а уже потом отдельный worker публикует его наружу.
     await using var connection = new NpgsqlConnection(connectionString);
     var rows = await connection.QueryAsync("""
         select id, message_type as MessageType, aggregate_id as AggregateId, payload, created_at_utc as CreatedAtUtc, published_at_utc as PublishedAtUtc
@@ -66,6 +71,7 @@ app.MapPost("/orders", async (CreateOrderRequest request) =>
     await connection.OpenAsync();
     await using var transaction = await connection.BeginTransactionAsync();
 
+    // Первая часть локальной транзакции: сохраняем бизнес-данные.
     await connection.ExecuteAsync("""
         insert into orders (id, customer_id, amount, source, created_at_utc)
         values (@Id, @CustomerId, @Amount, @Source, @CreatedAtUtc)
@@ -78,6 +84,9 @@ app.MapPost("/orders", async (CreateOrderRequest request) =>
         order.CreatedAtUtc
     }, transaction);
 
+    // Вторая часть той же транзакции: пишем outbox-запись.
+    // Именно это и есть суть transactional outbox pattern.
+    // Если транзакция откатится, не останется ситуации "заказ сохранился, а событие потерялось".
     await connection.ExecuteAsync("""
         insert into outbox_messages (id, message_type, aggregate_id, payload, created_at_utc)
         values (@Id, @MessageType, @AggregateId, @Payload, @CreatedAtUtc)
@@ -124,6 +133,8 @@ static async Task EnsureSchemaAsync(string connectionString)
             attempts integer not null default 0
         );
 
+        // Индекс помогает worker'у быстро находить неопубликованные записи.
+        // published_at_utc is null — это наш главный критерий "ещё не отправлено наружу".
         create index if not exists ix_outbox_messages_unpublished
             on outbox_messages (published_at_utc, created_at_utc);
         """;

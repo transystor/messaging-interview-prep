@@ -24,9 +24,12 @@ public sealed class OutboxPublisherWorker(ILogger<OutboxPublisherWorker> logger)
             }
             catch (Exception ex)
             {
+                // Ошибки батча логируем, но не убиваем процесс.
+                // Это типичный подход для background publisher'а: проблема одной итерации не должна ронять весь worker.
                 _logger.LogError(ex, "Outbox batch failed");
             }
 
+            // Небольшая пауза между опросами таблицы нужна, чтобы worker не крутил tight loop без пользы.
             await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken);
         }
     }
@@ -34,6 +37,9 @@ public sealed class OutboxPublisherWorker(ILogger<OutboxPublisherWorker> logger)
     private async Task PublishBatchAsync(CancellationToken cancellationToken)
     {
         await using var connection = new NpgsqlConnection(_connectionString);
+
+        // Берём только те сообщения, которые ещё не были опубликованы.
+        // Сортировка по created_at_utc помогает сохранять более естественный порядок публикации.
         var messages = (await connection.QueryAsync<OutboxMessageRow>("""
             select id, message_type as MessageType, aggregate_id as AggregateId, payload, created_at_utc as CreatedAtUtc, published_at_utc as PublishedAtUtc, attempts
             from outbox_messages
@@ -53,9 +59,13 @@ public sealed class OutboxPublisherWorker(ILogger<OutboxPublisherWorker> logger)
 
             try
             {
+                // Один outbox record публикуем сразу в оба transport'а.
+                // В production так делают только если это действительно часть архитектуры,
+                // а здесь это полезно для учебного сравнения RabbitMQ и Kafka на одном и том же event payload.
                 await PublishToRabbitMqAsync(message.Payload);
                 await PublishToKafkaAsync(message.AggregateId.ToString(), message.Payload);
 
+                // published_at_utc — основной признак, что сообщение успешно покинуло outbox table.
                 await connection.ExecuteAsync("""
                     update outbox_messages
                     set published_at_utc = now(), attempts = attempts + 1
@@ -66,6 +76,7 @@ public sealed class OutboxPublisherWorker(ILogger<OutboxPublisherWorker> logger)
             }
             catch (Exception ex)
             {
+                // attempts увеличиваем даже на неуспехе, чтобы видеть повторные попытки и иметь базу для retry policy.
                 await connection.ExecuteAsync("""
                     update outbox_messages
                     set attempts = attempts + 1
@@ -99,6 +110,8 @@ public sealed class OutboxPublisherWorker(ILogger<OutboxPublisherWorker> logger)
             ContentType = "application/json"
         };
 
+        // В outbox demo RabbitMQ-публикация намеренно проще, чем в основном API-примере.
+        // Наша главная цель здесь не routing-фичи, а сам факт надёжной отложенной публикации из таблицы outbox.
         await channel.BasicPublishAsync(string.Empty, "orders.work", false, props, body);
         await channel.BasicPublishAsync("orders.fanout", string.Empty, false, props, body);
     }
@@ -125,6 +138,9 @@ public sealed class OutboxPublisherWorker(ILogger<OutboxPublisherWorker> logger)
         producer.Flush(TimeSpan.FromSeconds(5));
     }
 
+    // Отдельный record для чтения строки outbox-таблицы.
+    // Мы явно храним published_at и attempts, потому что именно эти поля чаще всего нужны
+    // для operational-логики фонового publisher'а.
     private sealed record OutboxMessageRow(
         Guid Id,
         string MessageType,
