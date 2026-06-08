@@ -33,6 +33,7 @@
 - `src/RabbitMq.Consumer.PubSub`
 - `src/RabbitMq.Consumer.DirectRouting`
 - `src/RabbitMq.Consumer.TopicErrors`
+- `src/RabbitMq.Consumer.RedeliveryDemo`
 
 ## Что понять
 
@@ -60,6 +61,12 @@
 - `*` и `#` дают гибкий pattern matching
 - это более гибкий вариант по сравнению с `direct`, когда нужны не точные ключи, а шаблоны
 
+### Redelivery
+Пойми:
+- `ack` подтверждает успешную обработку
+- `nack`/ошибка могут привести к повторной доставке
+- redelivery ломает наивные ожидания о "идеальном порядке" и требует идемпотентной обработки
+
 ## Что уметь сказать вслух
 
 > RabbitMQ хорошо подходит для task queues и routing-driven integration. У него очень явная operational model: producer, exchange, queue, consumer, ack.
@@ -80,6 +87,7 @@
 - `src/Kafka.Consumer.GroupA`
 - `src/Kafka.Consumer.GroupB`
 - `src/Kafka.Consumer.RetryDemo`
+- `src/Kafka.Consumer.DeadLetterDemo`
 
 ## Что понять
 
@@ -99,6 +107,7 @@
 Пойми:
 - проблемные сообщения не должны бесконечно ломать основной consumer loop
 - обычно используют retry topics и dead-letter topics
+- retry demo показывает идею, а dead-letter demo показывает уже реальную публикацию в отдельный topic
 
 ## Что уметь сказать вслух
 

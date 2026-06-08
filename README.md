@@ -38,7 +38,9 @@ docs/interview-cheat-sheet.md
 - `src/Kafka.Consumer.GroupB` — отдельная consumer group для "analytics"
 - `src/RabbitMq.Consumer.TopicErrors` — подписчик на topic exchange c routing pattern
 - `src/RabbitMq.Consumer.DirectRouting` — подписчик на direct exchange с точным routing key
+- `src/RabbitMq.Consumer.RedeliveryDemo` — наглядный пример nack + requeue + redelivery
 - `src/Kafka.Consumer.RetryDemo` — учебный consumer для объяснения retry / DLQ-подхода
+- `src/Kafka.Consumer.DeadLetterDemo` — consumer, который реально публикует проблемные сообщения в DLQ topic
 - `docs/interview-cheat-sheet.md` — сжатая шпаргалка по вопросам/ответам
 - `docs/study-roadmap.md` — маршрут изучения по шагам
 - `src/Messaging.Api` — ASP.NET Core minimal API, которая публикует событие и в RabbitMQ, и в Kafka
@@ -292,6 +294,37 @@ dotnet run --project src/RabbitMq.Producer
 
 ---
 
+## Пример 5. RabbitMQ redelivery
+
+`RabbitMq.Consumer.RedeliveryDemo` специально показывает сценарий:
+- consumer получает сообщение
+- первый раз делает `BasicNack(..., requeue: true)`
+- RabbitMQ доставляет это же сообщение повторно
+- на второй попытке consumer уже делает `ack`
+
+### Как запускать
+
+Окно 1:
+```bash
+dotnet run --project src/RabbitMq.Consumer.RedeliveryDemo
+```
+
+Окно 2:
+```bash
+dotnet run --project src/RabbitMq.Producer
+```
+
+### Что важно для собеса
+
+Это полезно, чтобы руками увидеть разницу между:
+- обычной успешной обработкой
+- `ack`
+- `nack`
+- `requeue`
+- повторной доставкой того же сообщения
+
+---
+
 ## RabbitMQ, как объяснять на собеседовании
 
 Хорошая формулировка:
@@ -416,6 +449,33 @@ dotnet run --project src/Kafka.Consumer.RetryDemo
 ```bash
 dotnet run --project src/Kafka.Producer
 ```
+
+---
+
+## Пример 5. Реальный DLQ demo
+
+`Kafka.Consumer.DeadLetterDemo` показывает более наглядный сценарий:
+- проблемное сообщение не просто логируется
+- оно реально публикуется в отдельный topic:
+  - `orders.created.dlq`
+
+### Как запускать
+
+Окно 1:
+```bash
+dotnet run --project src/Kafka.Consumer.DeadLetterDemo
+```
+
+Окно 2:
+```bash
+dotnet run --project src/Kafka.Producer
+```
+
+### Что важно для собеса
+
+Это уже ближе к production-подходу:
+- основной consumer не зацикливается на плохом сообщении
+- проблемный payload уходит в отдельный поток разбора
 
 ---
 
