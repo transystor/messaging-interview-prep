@@ -20,6 +20,7 @@ var factory = new ConnectionFactory
 const string workQueueName = "orders.work";
 const string fanoutExchangeName = "orders.fanout";
 const string topicExchangeName = "orders.topic";
+const string directExchangeName = "orders.direct";
 
 var connection = await factory.CreateConnectionAsync();
 var channel = await connection.CreateChannelAsync();
@@ -29,6 +30,7 @@ var channel = await connection.CreateChannelAsync();
 await channel.QueueDeclareAsync(queue: workQueueName, durable: true, exclusive: false, autoDelete: false);
 await channel.ExchangeDeclareAsync(exchange: fanoutExchangeName, type: ExchangeType.Fanout, durable: true);
 await channel.ExchangeDeclareAsync(exchange: topicExchangeName, type: ExchangeType.Topic, durable: true);
+await channel.ExchangeDeclareAsync(exchange: directExchangeName, type: ExchangeType.Direct, durable: true);
 
 foreach (var order in SampleData.Orders)
 {
@@ -61,6 +63,12 @@ foreach (var order in SampleData.Orders)
     var routingKey = order.Amount > 1000m ? "order.error.payment" : "order.info.created";
     await channel.BasicPublishAsync(exchange: topicExchangeName, routingKey: routingKey, mandatory: false, basicProperties: props, body: body);
     Console.WriteLine($"[RabbitMQ Producer] topic exchange ({routingKey}) <- {json}");
+
+    // Для direct exchange используем точные routing keys без pattern matching.
+    // Это полезно, когда маршрут определяется небольшой конечной категорией: billing, shipping, email и т.п.
+    var directRoutingKey = order.Amount > 1000m ? "billing" : "shipping";
+    await channel.BasicPublishAsync(exchange: directExchangeName, routingKey: directRoutingKey, mandatory: false, basicProperties: props, body: body);
+    Console.WriteLine($"[RabbitMQ Producer] direct exchange ({directRoutingKey}) <- {json}");
 }
 
 Console.WriteLine("RabbitMQ messages published.");

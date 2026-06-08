@@ -31,6 +31,7 @@
 - `src/RabbitMq.Producer`
 - `src/RabbitMq.Consumer.WorkQueue`
 - `src/RabbitMq.Consumer.PubSub`
+- `src/RabbitMq.Consumer.DirectRouting`
 - `src/RabbitMq.Consumer.TopicErrors`
 
 ## Что понять
@@ -48,10 +49,16 @@
 - exchange рассылает копию во все связанные очереди
 - это уже broadcast, а не competing consumers
 
+### Direct Exchange
+Пойми:
+- routing строится по точному совпадению ключа
+- удобно для конечного набора категорий вроде `billing`, `shipping`, `email`
+
 ### Topic Exchange
 Пойми:
 - routing key определяет, кто получит сообщение
 - `*` и `#` дают гибкий pattern matching
+- это более гибкий вариант по сравнению с `direct`, когда нужны не точные ключи, а шаблоны
 
 ## Что уметь сказать вслух
 

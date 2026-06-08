@@ -37,6 +37,7 @@ docs/interview-cheat-sheet.md
 - `src/Kafka.Consumer.GroupA` — consumer group для "processing"
 - `src/Kafka.Consumer.GroupB` — отдельная consumer group для "analytics"
 - `src/RabbitMq.Consumer.TopicErrors` — подписчик на topic exchange c routing pattern
+- `src/RabbitMq.Consumer.DirectRouting` — подписчик на direct exchange с точным routing key
 - `src/Kafka.Consumer.RetryDemo` — учебный consumer для объяснения retry / DLQ-подхода
 - `docs/interview-cheat-sheet.md` — сжатая шпаргалка по вопросам/ответам
 - `docs/study-roadmap.md` — маршрут изучения по шагам
@@ -219,7 +220,43 @@ Producer в RabbitMQ обычно публикует не напрямую в co
 
 ---
 
-## Пример 3. Topic Exchange
+## Пример 3. Direct Exchange
+
+### Что демонстрирует
+
+Producer также публикует события в:
+- `orders.direct`
+
+Routing key выбирается так:
+- дорогой заказ: `billing`
+- обычный заказ: `shipping`
+
+`RabbitMq.Consumer.DirectRouting` получает только сообщения с точным совпадением binding key.
+
+### Как запускать
+
+Окно 1:
+```bash
+dotnet run --project src/RabbitMq.Consumer.DirectRouting billing-service billing
+```
+
+Окно 2:
+```bash
+dotnet run --project src/RabbitMq.Consumer.DirectRouting shipping-service shipping
+```
+
+Окно 3:
+```bash
+dotnet run --project src/RabbitMq.Producer
+```
+
+### Что важно для собеса
+
+`direct exchange` удобен, когда у тебя конечный набор точных маршрутов и не нужен pattern matching.
+
+---
+
+## Пример 4. Topic Exchange
 
 ### Что демонстрирует
 
@@ -247,7 +284,7 @@ dotnet run --project src/RabbitMq.Producer
 
 ### Что важно для собеса
 
-`topic exchange` позволяет гибче routing, чем `fanout`:
+`topic exchange` позволяет гибче routing, чем `direct` или `fanout`:
 - `*` совпадает с одним сегментом
 - `#` совпадает с несколькими сегментами
 
